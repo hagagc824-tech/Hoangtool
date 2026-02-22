@@ -1,0 +1,50 @@
+const TelegramBot = require('node-telegram-bot-api');
+const fs = require('fs');
+const express = require('express');
+const cors = require('cors');
+
+const BOT_TOKEN = '8594279956:AAGZQDQVnoBaGmURmY11uKE68-9Dd0rd5Lk';
+const bot = new TelegramBot(BOT_TOKEN, { polling: { interval: 300, autoStart: true } });
+const app = express();
+app.use(cors(), express.json());
+
+const DB_FILE = 'data.json';
+let db = { users: {}, logs: [] };
+if (fs.existsSync(DB_FILE)) db = JSON.parse(fs.readFileSync(DB_FILE));
+
+const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+
+// Xử lý tin nhắn nhóm & bot riêng
+bot.on('message', (msg) => {
+    try {
+        const cid = msg.chat.id;
+        const text = msg.text || "";
+        const user = msg.from.username || "Khách";
+
+        // Ghi log
+        db.logs.push({ time: new Date().toLocaleTimeString(), user, msg: text });
+        if(db.logs.length > 50) db.logs.shift();
+        save();
+
+        // 1. Auto-delete & Kích hoạt Key
+        if (text.startsWith('KEY-')) {
+            bot.deleteMessage(cid, msg.message_id).catch(() => {});
+            db.users[msg.from.id] = { exp: Date.now() + 86400000 };
+            save();
+            bot.sendMessage(cid, `✅ @${user} đã kích hoạt VIP!`);
+            return;
+        }
+
+        // 2. Dự đoán cầu (Không cần lệnh)
+        if (/^[a-f0-9]{32}$/i.test(text) || /^[txTX\-\s]{3,}$/.test(text)) {
+            if (!db.users[msg.from.id] || (db.users[msg.from.id].exp !== 0 && Date.now() > db.users[msg.from.id].exp)) {
+                return bot.sendMessage(cid, "🚫 Nhập KEY để kích hoạt bot!");
+            }
+            const kq = Math.random() > 0.5 ? "TÀI" : "XỈU";
+            bot.sendMessage(cid, `🎰 Kết quả: *${kq}*\n📝 Mã: ${text.slice(0, 6)}`, {parse_mode: 'Markdown'});
+        }
+    } catch (e) { console.error("Lỗi tin nhắn:", e); }
+});
+
+app.get('/get-logs', (req, res) => res.json(db.logs));
+app.listen(process.env.PORT || 3000, () => console.log('Server đã sẵn sàng.'));
